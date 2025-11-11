@@ -44,6 +44,8 @@ class Server(config: EffektConfig, compileOnChange: Boolean=false) extends Langu
   private var shutdownRequested: Boolean = false
   // Configuration sent by the language client
   var settings: Option[JsonObject] = None
+  // Track if there where any changes since the last compilation
+  private var localChanges: Boolean = false
 
   val getDriver: Driver = this
   val getConfig: EffektConfig = config
@@ -195,6 +197,11 @@ class Server(config: EffektConfig, compileOnChange: Boolean=false) extends Langu
   //
 
   override def afterCompilation(source: Source, config: EffektConfig)(implicit C: Context): Unit = {
+    // Remove the local changes flag, since we just got new accurate information from the compiler
+    localChanges = false
+    // Tell the client to refresh inlay hints, regardless if accurate InlayHint setting is on or off.
+    this.client.refreshInlayHints()
+
     // Publish LSP diagnostics
     val messages = C.messaging.buffer
     val groups = messages.groupBy(msg => msg.sourceName.getOrElse(""))
@@ -231,24 +238,27 @@ class Server(config: EffektConfig, compileOnChange: Boolean=false) extends Langu
   //
   //
 
-  def didChange(params: DidChangeTextDocumentParams): Unit = {
+  override def didChange(params: DidChangeTextDocumentParams): Unit = {
+    // Mark changes since last compilation
+    localChanges = true
+
     if (!compileOnChange) return
     val document = params.getTextDocument
     clearDiagnostics(document.getUri)
     getDriver.compileString(document.getUri, params.getContentChanges.get(0).getText, getConfig)
   }
 
-  def didClose(params: DidCloseTextDocumentParams): Unit = {
+  override def didClose(params: DidCloseTextDocumentParams): Unit = {
     clearDiagnostics(params.getTextDocument.getUri)
   }
 
-  def didOpen(params: DidOpenTextDocumentParams): Unit = {
+  override def didOpen(params: DidOpenTextDocumentParams): Unit = {
     val document = params.getTextDocument
     clearDiagnostics(document.getUri)
     getDriver.compileString(document.getUri, document.getText, getConfig)
   }
 
-  def didSave(params: DidSaveTextDocumentParams): Unit = {
+  override def didSave(params: DidSaveTextDocumentParams): Unit = {
     val document = params.getTextDocument
     val text = Option(params.getText) match {
       case Some(t) => t
@@ -375,15 +385,21 @@ class Server(config: EffektConfig, compileOnChange: Boolean=false) extends Langu
   //
 
   override def inlayHint(params: InlayHintParams): CompletableFuture[util.List[InlayHint]] = {
-
-    // Inlay Hint Setting Json Object
+    // Inlay Hint setting Json Object
     val inlayHintSetting = settingObject("inlayHints")
 
-    val showCaptureHints = inlayHintSetting.flatMap(ref => settingBool(ref, "captures"))
-      .getOrElse(true) // Default to true (as specified in the VSCode extension)
-    val showReturnTypeHints = inlayHintSetting.flatMap(ref => settingBool(ref, "returnTypes"))
-      .getOrElse(true) // Default to true (as specified in the VSCode extension)
+    def getHintSetting(name: String, default: Boolean): Boolean =
+      inlayHintSetting.flatMap(ref => settingBool(ref, name)).getOrElse(default)
 
+    // All default are as specified in the VSCode extension
+    val showCaptureHints    = getHintSetting("captures",    default=true)
+    val showReturnTypeHints = getHintSetting("returnTypes", default=true)
+    val accurateInlayHints  = getHintSetting("accurate",    default=false)
+
+    if (localChanges && accurateInlayHints) {
+      // Don't provide inlay hints if there are local changes since the last compilation, since they might be out of date.
+      return CompletableFuture.completedFuture(Collections.seqToJavaList(Vector()))
+    }
 
     val hints = for {
       source <- sources.get(params.getTextDocument.getUri)
