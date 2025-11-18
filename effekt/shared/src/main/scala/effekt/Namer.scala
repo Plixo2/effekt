@@ -69,7 +69,7 @@ object Namer extends Phase[Parsed, NameResolved] {
     val Module(decl, src) = mod
     val scope = scopes.toplevel(Context.module.namespace, builtins.rootBindings)
 
-    Context.initNamerstate(scope)
+    NamerOps.initNamerstate(scope)
 
     def importDependency(filePath: String) =
       val included = Context.moduleOf(filePath)
@@ -130,7 +130,7 @@ object Namer extends Phase[Parsed, NameResolved] {
       ()
 
     case source.NamespaceDef(id, definitions, doc, span) =>
-      Context.namespace(id.name) {
+      NamerOps.namespace(id.name) {
         definitions.foreach(preresolve)
       }
 
@@ -138,98 +138,98 @@ object Namer extends Phase[Parsed, NameResolved] {
     case d @ source.DefDef(id, captures, annot, source.New(source.Implementation(interface, clauses, _), _), doc, span) =>
       val tpe = Context.at(interface) { resolveBlockRef(interface) }
       val cpts = captures.unspan.map { resolve }
-      val sym = Binder.DefBinder(Context.nameFor(id), cpts, Some(tpe), d)
-      Context.define(id, sym)
+      val sym = Binder.DefBinder(NamerOps.nameFor(id), cpts, Some(tpe), d)
+      NamerOps.define(id, sym)
 
     case d @ source.DefDef(id, captures, annot, block, doc, span) =>
       ()
 
     case f @ source.FunDef(id, tparams, vparams, bparams, captures, annot, body, doc, span) =>
-      val uniqueId = Context.nameFor(id)
+      val uniqueId = NamerOps.nameFor(id)
       val cpts = captures.map { resolve }.unspan
       // we create a new scope, since resolving type params introduces them in this scope
-      val sym = Context scoped {
+      val sym = NamerOps scoped {
         val tps = tparams map resolve
         // TODO resolve(ParamSection) loses structural information about value params and block params.
         //   we should refactor!
         val vps = vparams map resolve
         val bps = bparams map resolve
-        val ret = Context scoped {
-          Context.bindValues(vps)
-          Context.bindBlocks(bps)
+        val ret = NamerOps scoped {
+          NamerOps.bindValues(vps)
+          NamerOps.bindBlocks(bps)
           annot map resolve
         }
         UserFunction(uniqueId, tps.unspan, vps.unspan, bps.unspan, cpts, ret.unspan.map { _._1 }, ret.unspan.map { _._2 }, f)
       }
-      Context.define(id, sym)
+      NamerOps.define(id, sym)
 
     case decl @ source.InterfaceDef(id, tparams, ops, doc, span) =>
-      val effectName = Context.nameFor(id)
+      val effectName = NamerOps.nameFor(id)
       // we use the localName for effects, since they will be bound as capabilities
-      val effectSym = Context scoped {
+      val effectSym = NamerOps scoped {
         val tps = tparams map resolve
         // we do not resolve the effect operations here to allow them to refer to types that are defined
         // later in the file
         Interface(effectName, tps.unspan, List(), decl)
       }
-      Context.define(id, effectSym)
+      NamerOps.define(id, effectSym)
 
     case d @ source.TypeDef(id, tparams, tpe, doc, span) =>
-      val tps = Context scoped { tparams map resolve }
-      val alias = Context scoped {
-        tps.foreach { t => Context.bind(t) }
-        TypeAlias(Context.nameFor(id), tps, resolveValueType(tpe), d)
+      val tps = NamerOps scoped { tparams map resolve }
+      val alias = NamerOps scoped {
+        tps.foreach { t => NamerOps.bind(t) }
+        TypeAlias(NamerOps.nameFor(id), tps, resolveValueType(tpe), d)
       }
-      Context.define(id, alias)
+      NamerOps.define(id, alias)
 
     case d @ source.EffectDef(id, tparams, effs, doc, span) =>
-      val tps = Context scoped { tparams map resolve }
-      val alias = Context scoped {
-        tps.foreach { t => Context.bind(t) }
-        EffectAlias(Context.nameFor(id), tps, resolve(effs), d)
+      val tps = NamerOps scoped { tparams map resolve }
+      val alias = NamerOps scoped {
+        tps.foreach { t => NamerOps.bind(t) }
+        EffectAlias(NamerOps.nameFor(id), tps, resolve(effs), d)
       }
-      Context.define(id, alias)
+      NamerOps.define(id, alias)
 
     case d @ source.DataDef(id, tparams, ctors, doc, span) =>
-      val typ = Context scoped {
+      val typ = NamerOps scoped {
         val tps = tparams map resolve
         // we do not resolve the constructors here to allow them to refer to types that are defined
         // later in the file
-        DataType(Context.nameFor(id), tps.unspan, List(), d)
+        DataType(NamerOps.nameFor(id), tps.unspan, List(), d)
       }
-      Context.define(id, typ)
+      NamerOps.define(id, typ)
 
     case d @ source.RecordDef(id, tparams, fields, doc, span) =>
       lazy val sym: Record = {
-        val tps = Context scoped { tparams map resolve }
+        val tps = NamerOps scoped { tparams map resolve }
         // we do not resolve the fields here to allow them to refer to types that are defined
         // later in the file
-        Record(Context.nameFor(id), tps.unspan, null, d)
+        Record(NamerOps.nameFor(id), tps.unspan, null, d)
       }
-      Context.define(id, sym)
+      NamerOps.define(id, sym)
 
     case d @source.ExternType(id, tparams, doc, span) =>
-      Context.define(id, Context scoped {
+      NamerOps.define(id, NamerOps scoped {
         val tps = tparams map resolve
-        ExternType(Context.nameFor(id), tps.unspan, d)
+        ExternType(NamerOps.nameFor(id), tps.unspan, d)
       })
 
     case decl @ source.ExternInterface(id, tparams, doc, span) =>
-      Context.define(id, Context scoped {
+      NamerOps.define(id, NamerOps scoped {
         val tps = tparams map resolve
-        ExternInterface(Context.nameFor(id), tps, decl)
+        ExternInterface(NamerOps.nameFor(id), tps, decl)
       })
 
     case d @ source.ExternDef(id, tparams, vparams, bparams, captures, ret, bodies, doc, span) =>
-      val name = Context.nameFor(id)
+      val name = NamerOps.nameFor(id)
       val capt = resolve(captures)
-      Context.define(id, Context scoped {
+      NamerOps.define(id, NamerOps scoped {
         val tps = tparams map resolve
         val vps = vparams map resolve
         val bps = bparams map resolve
 
-        val (tpe, eff) = Context scoped {
-          Context.bindBlocks(bps)
+        val (tpe, eff) = NamerOps scoped {
+          NamerOps.bindBlocks(bps)
           resolve(ret)
         }
 
@@ -237,11 +237,11 @@ object Namer extends Phase[Parsed, NameResolved] {
       })
 
     case d @ source.ExternResource(id, tpe, doc, span) =>
-      val name = Context.nameFor(id)
+      val name = NamerOps.nameFor(id)
       val btpe = resolveBlockType(tpe)
       val sym = ExternResource(name, btpe, d)
-      Context.define(id, sym)
-      Context.bindBlock(sym)
+      NamerOps.define(id, sym)
+      NamerOps.bindBlock(sym)
 
     case d @ source.ExternInclude(ff, path, Some(contents), _, doc, span) =>
       ()
@@ -280,7 +280,7 @@ object Namer extends Phase[Parsed, NameResolved] {
       resolve(term)
 
     case source.BlockStmt(stmts, span) =>
-      Context scoped { resolve(stmts) }
+      NamerOps scoped { resolve(stmts) }
   }
 
   def resolve(d: source.Def)(using Context): Unit = withDefinition(d) {
@@ -288,7 +288,7 @@ object Namer extends Phase[Parsed, NameResolved] {
     case d @ source.ValDef(id, annot, binding, doc, span) =>
       val tpe = annot.map(resolveValueType)
       resolve(binding)
-      Context.define(id, ValBinder(Context.nameFor(id), tpe, d))
+      NamerOps.define(id, ValBinder(NamerOps.nameFor(id), tpe, d))
 
 
     // Local mutable state
@@ -296,22 +296,22 @@ object Namer extends Phase[Parsed, NameResolved] {
       val tpe = annot.map(resolveValueType)
 
       resolve(binding)
-      val sym = VarBinder(Context.nameFor(id), tpe, d)
-      Context.define(id, sym)
-      Context.bind(sym.capture)
+      val sym = VarBinder(NamerOps.nameFor(id), tpe, d)
+      NamerOps.define(id, sym)
+      NamerOps.bind(sym.capture)
 
     // allocation into a region
     case d @ source.RegDef(id, annot, region, binding, doc, span) =>
       val tpe = annot.map(resolveValueType)
-      val reg = Context.resolveTerm(region) match {
+      val reg = NamerOps.resolveTerm(region) match {
         case t: BlockSymbol => t
         case _ => Context.abort("Region needs to be a block.")
       }
 
       resolve(binding)
-      val sym = RegBinder(Context.nameFor(id), tpe, reg, d)
+      val sym = RegBinder(NamerOps.nameFor(id), tpe, reg, d)
 
-      Context.define(id, sym)
+      NamerOps.define(id, sym)
 
     // already has been preresolved (to enable recursive definitions)
     case d @ source.DefDef(id, captures, annot, source.New(impl, _), doc, span) =>
@@ -321,25 +321,25 @@ object Namer extends Phase[Parsed, NameResolved] {
       val tpe = annot.map(resolveBlockType)
       resolve(binding)
       val cpts = captures.unspan.map { resolve }
-      Context.define(id, DefBinder(Context.nameFor(id), cpts, tpe.unspan, d))
+      NamerOps.define(id, DefBinder(NamerOps.nameFor(id), cpts, tpe.unspan, d))
 
     // FunDef and InterfaceDef have already been resolved as part of the module declaration
     case f @ source.FunDef(id, tparams, vparams, bparams, captures, ret, body, doc, span) =>
       val sym = f.symbol
-      Context.scopedWithName(id.name) {
-        sym.tparams.foreach { p => Context.bind(p) }
-        Context.bindValues(sym.vparams)
-        Context.bindBlocks(sym.bparams)
+      NamerOps.scopedWithName(id.name) {
+        sym.tparams.foreach { p => NamerOps.bind(p) }
+        NamerOps.bindValues(sym.vparams)
+        NamerOps.bindBlocks(sym.bparams)
 
         resolve(body)
       }
 
     case f @ source.ExternDef(id, tparams, vparams, bparams, captures, ret, bodies, doc, span) =>
       val sym = f.symbol
-      Context.scopedWithName(id.name) {
-        sym.tparams.foreach { p => Context.bind(p) }
-        Context.bindValues(sym.vparams)
-        Context.bindBlocks(sym.bparams)
+      NamerOps.scopedWithName(id.name) {
+        sym.tparams.foreach { p => NamerOps.bind(p) }
+        NamerOps.bindValues(sym.vparams)
+        NamerOps.bindBlocks(sym.bparams)
         bodies.foreach {
           case source.ExternBody.StringExternBody(ff, body, span) => body.args.foreach(resolve)
           case source.ExternBody.EffektExternBody(ff, body, span) => resolve(body)
@@ -352,11 +352,11 @@ object Namer extends Phase[Parsed, NameResolved] {
       val interface = Context.symbolOf(interfaceId).asInterface
       interface.operations = operations.map {
         case op @ source.Operation(id, tparams, vparams, bparams, ret, doc, span) => Context.at(op) {
-          val name = Context.nameFor(id)
+          val name = NamerOps.nameFor(id)
 
-          val opSym = Context.scopedWithName(id.name) {
+          val opSym = NamerOps.scopedWithName(id.name) {
             // the parameters of the interface are in scope
-            interface.tparams.foreach { p => Context.bind(p) }
+            interface.tparams.foreach { p => NamerOps.bind(p) }
 
             val tps = tparams map resolve
 
@@ -364,7 +364,7 @@ object Namer extends Phase[Parsed, NameResolved] {
             val resBparams = bparams map resolve
 
             // bring capture names in scope that are introduced by blockparameters
-            resBparams.map { b => Context.bind(b.capture) }
+            resBparams.map { b => NamerOps.bind(b.capture) }
 
             // The type parameters of an effect op are:
             //   1) all type parameters on the effect, followed by
@@ -375,17 +375,17 @@ object Namer extends Phase[Parsed, NameResolved] {
           }
 
           // define in namespace ...
-          Context.namespace(interfaceId.name) {
-            Context.define(id, opSym)
+          NamerOps.namespace(interfaceId.name) {
+            NamerOps.define(id, opSym)
           }
           // ... and bind outside
-          Context.bind(opSym)
+          NamerOps.bind(opSym)
           opSym
         }
       }
 
     case source.NamespaceDef(id, definitions, doc, span) =>
-      Context.namespace(id.name) {
+      NamerOps.namespace(id.name) {
         definitions.foreach(resolve)
       }
 
@@ -394,30 +394,30 @@ object Namer extends Phase[Parsed, NameResolved] {
       val data = d.symbol
       val constructors = ctors map {
         case c @ source.Constructor(id, tparams, ps, doc, span) =>
-          val constructor = Context scoped {
-            val name = Context.nameFor(id)
+          val constructor = NamerOps scoped {
+            val name = NamerOps.nameFor(id)
             val tps = tparams map resolve
             Constructor(name, data.tparams ++ tps.unspan, Nil, data, c)
           }
           // DataType::Constructor()
-          Context.namespace(typeId.name) {
-            Context.define(id, constructor)
+          NamerOps.namespace(typeId.name) {
+            NamerOps.define(id, constructor)
           }
           constructor.fields = resolveFields(ps.unspan, constructor, false)
           constructor
       }
       // export DataType::{Constructor1, ...}
-      constructors.foreach { c => Context.bind(c) }
+      constructors.foreach { c => NamerOps.bind(c) }
 
       data.constructors = constructors
 
     // The record has been resolved as part of the preresolution step
     case d @ source.RecordDef(id, tparams, fs, doc, span) =>
       val record = d.symbol
-      val name = Context.nameFor(id)
+      val name = NamerOps.nameFor(id)
       val constructor = Constructor(name, record.tparams, Nil, record, d)
       // we define the constructor on a copy to avoid confusion with symbols
-      Context.define(id.clone, constructor)
+      NamerOps.define(id.clone, constructor)
       record.constructor = constructor
       constructor.fields = resolveFields(fs.unspan, constructor, true)
 
@@ -439,9 +439,9 @@ object Namer extends Phase[Parsed, NameResolved] {
 
     case hole @ source.Hole(id, Template(strings, args), span) =>
       val h = Hole(Name.local(freshHoleId), hole)
-      Context.addHole(h)
+      NamerOps.addHole(h)
       Context.assignSymbol(id, h)
-      Context scoped {
+      NamerOps scoped {
         args.foreach(resolve)
       }
 
@@ -452,25 +452,25 @@ object Namer extends Phase[Parsed, NameResolved] {
     case source.Match(scrutinees, clauses, default, _) =>
       scrutinees.foreach(resolve)
       clauses.foreach(resolve)
-      Context.scoped { default.foreach(resolve) }
+      NamerOps.scoped { default.foreach(resolve) }
 
     case source.If(guards, thn, els, _) =>
-      Context scoped { guards.foreach(resolve); resolve(thn) }
-      Context scoped { resolve(els) }
+      NamerOps scoped { guards.foreach(resolve); resolve(thn) }
+      NamerOps scoped { resolve(els) }
 
     case source.While(guards, block, default, _) =>
-      Context scoped { guards.foreach(resolve); resolve(block) }
-      Context scoped { default foreach resolve }
+      NamerOps scoped { guards.foreach(resolve); resolve(block) }
+      NamerOps scoped { default foreach resolve }
 
     case tree @ source.TryHandle(body, handlers, _) =>
       handlers.foreach(resolve)
 
-      Context scoped {
+      NamerOps scoped {
 
         // bind all annotated capabilities
         handlers.foreach { handler =>
           handler.capability.foreach { p =>
-            Context.bindBlock(resolve(p))
+            NamerOps.bindBlock(resolve(p))
           }
         }
 
@@ -479,20 +479,20 @@ object Namer extends Phase[Parsed, NameResolved] {
 
     case tree @ source.Region(name, body, _) =>
       val reg = BlockParam(Name.local(name.name), Some(builtins.TRegion), tree)
-      Context.define(name, reg)
-      Context scoped {
-        Context.bindBlock(reg)
+      NamerOps.define(name, reg)
+      NamerOps scoped {
+        NamerOps.bindBlock(reg)
         resolve(body)
       }
 
     case f @ source.BlockLiteral(tparams, vparams, bparams, stmt, _) =>
-      Context scoped {
+      NamerOps scoped {
         val tps = tparams map resolve
         val vps = vparams map resolve
         val bps = bparams map resolve
 
-        Context.bindValues(vps)
-        Context.bindBlocks(bps)
+        NamerOps.bindValues(vps)
+        NamerOps.bindBlocks(bps)
 
         resolve(stmt)
       }
@@ -512,29 +512,29 @@ object Namer extends Phase[Parsed, NameResolved] {
       // We are a bit context sensitive in resolving the method
       Context.focusing(target) { _ =>
         receiver match {
-          case source.Var(id, _) => Context.resolveTerm(id) match {
+          case source.Var(id, _) => NamerOps.resolveTerm(id) match {
             // (foo: ValueType).bar(args)  = Call(bar, foo :: args)
             case symbol: ValueSymbol =>
-              if !Context.resolveOverloadedFunction(target)
+              if !NamerOps.resolveOverloadedFunction(target)
               then Context.abort(pp"Cannot resolve function ${target}, called on a value receiver.")
 
             case symbol: RefBinder =>
-              if !Context.resolveOverloadedFunction(target)
+              if !NamerOps.resolveOverloadedFunction(target)
               then Context.abort(pp"Cannot resolve function ${target}, called on a receiver that is a reference.")
 
             // (foo: BlockType).bar(args)  = Invoke(foo, bar, args)
             case symbol: BlockSymbol =>
-              if !Context.resolveOverloadedOperation(target)
+              if !NamerOps.resolveOverloadedOperation(target)
               then Context.abort(pp"Cannot resolve operation ${target}, called on a receiver that is a computation.")
           }
 
           case source.Unbox(term, _) =>
-            if !Context.resolveOverloadedFunction(target)
+            if !NamerOps.resolveOverloadedFunction(target)
             then Context.abort(pp"Cannot resolve operation ${target}, called on an unboxed computation.")
 
           // expr.bar(args) = Call(bar, expr :: args)
           case term =>
-            if !Context.resolveOverloadedFunction(target)
+            if !NamerOps.resolveOverloadedFunction(target)
             then Context.abort(pp"Cannot resolve function ${target}, called on an expression.")
         }
       }
@@ -543,23 +543,23 @@ object Namer extends Phase[Parsed, NameResolved] {
       bargs foreach resolve
 
     case source.Do(target, targs, vargs, bargs, _) =>
-      Context.resolveEffectCall(target)
+      NamerOps.resolveEffectCall(target)
       targs foreach resolveValueType
       vargs foreach resolve
       bargs foreach resolve
 
     case source.Call(target, targs, vargs, bargs, _) =>
       Context.focusing(target) {
-        case source.IdTarget(id)     => Context.resolveFunctionCalltarget(id)
+        case source.IdTarget(id)     => NamerOps.resolveFunctionCalltarget(id)
         case source.ExprTarget(expr) => resolve(expr)
       }
       targs foreach resolveValueType
       vargs foreach resolve
       bargs foreach resolve
 
-    case source.Var(id, _) => Context.resolveVar(id)
+    case source.Var(id, _) => NamerOps.resolveVar(id)
 
-    case source.Assign(id, expr, _) => Context.resolveVar(id) match {
+    case source.Assign(id, expr, _) => NamerOps.resolveVar(id) match {
       case _: VarBinder | _: RegBinder => resolve(expr)
       case _: ValBinder | _: ValueParam => Context.abort(pretty"Can only assign to mutable variables, but ${id.name} is a constant.")
       case y: Wildcard => Context.abort(s"Trying to assign to a wildcard, which is not allowed.")
@@ -578,19 +578,19 @@ object Namer extends Phase[Parsed, NameResolved] {
 
   // TODO move away
   def resolveFields(params: List[source.ValueParam], constructor: Constructor, defineAccessors: Boolean)(using Context): List[Field] = {
-    val vps = Context scoped {
+    val vps = NamerOps scoped {
       // Bind the type parameters
-      constructor.tparams.foreach { t => Context.bind(t) }
+      constructor.tparams.foreach { t => NamerOps.bind(t) }
       params map resolveNonfunctionValueParam
     }
 
     (vps zip params) map {
       case (paramSym, paramTree) =>
         val fieldId = paramTree.id.clone
-        val name = Context.nameFor(fieldId)
+        val name = NamerOps.nameFor(fieldId)
         val fieldSym = Field(name, paramSym, constructor, paramTree)
         if (defineAccessors) {
-          Context.define(fieldId, fieldSym)
+          NamerOps.define(fieldId, fieldSym)
         } else {
           Context.assignSymbol(fieldId, fieldSym)
         }
@@ -602,7 +602,7 @@ object Namer extends Phase[Parsed, NameResolved] {
     case source.Handler(capability, impl, _) =>
       resolve(impl)
       capability.foreach { param =>
-        Context.bind(resolve(param))
+        NamerOps.bind(resolve(param))
       }
   }
 
@@ -619,13 +619,13 @@ object Namer extends Phase[Parsed, NameResolved] {
           } getOrElse {
             Context.abort(pretty"Operation ${op} is not part of interface ${eff}.")
           }
-          Context scoped {
+          NamerOps scoped {
             val tps = tparams.map(resolve)
             val vps = vparams.map(resolve)
             val bps = bparams.map(resolve)
-            Context.bindValues(vps)
-            Context.bindBlocks(bps)
-            Context.define(resumeId, ResumeParam(Context.module))
+            NamerOps.bindValues(vps)
+            NamerOps.bindBlocks(bps)
+            NamerOps.define(resumeId, ResumeParam(Context.module))
             resolve(body)
           }
         }
@@ -672,9 +672,9 @@ object Namer extends Phase[Parsed, NameResolved] {
   def resolve(m: source.MatchClause)(using Context): Unit = Context.focusing(m) {
     case source.MatchClause(pattern, guards, body, _) =>
       val ps = resolve(pattern)
-      Context scoped {
+      NamerOps scoped {
         // variables bound by patterns are available in the guards.
-        ps.foreach { Context.bind }
+        ps.foreach { NamerOps.bind }
         guards.foreach { resolve }
 
         // wellformedness: only linear patterns
@@ -683,14 +683,14 @@ object Namer extends Phase[Parsed, NameResolved] {
           if (names contains p.name)
             Context.error(pp"Patterns have to be linear: names can only occur once, but ${p.name} shows up multiple times.")
 
-          val cs = Context.allConstructorsFor(p.name)
+          val cs = NamerOps.allConstructorsFor(p.name)
           if (cs.nonEmpty) {
             Context.warning(pp"Pattern binds variable ${p.name}. Maybe you meant to match on equally named constructor of type ${cs.head.tpe}?")
           }
           names = names + p.name
         }
 
-        Context scoped {
+        NamerOps scoped {
           resolve(body)
         }
       }
@@ -709,7 +709,7 @@ object Namer extends Phase[Parsed, NameResolved] {
       Context.assignSymbol(id, p)
       List(p)
     case source.TagPattern(id, patterns, _) =>
-      Context.resolveTerm(id) match {
+      NamerOps.resolveTerm(id) match {
         case symbol: Constructor => ()
         case _ => Context.at(id) {
           Context.error("Can only pattern match on constructors of data types.")
@@ -725,7 +725,7 @@ object Namer extends Phase[Parsed, NameResolved] {
     case MatchGuard.PatternGuard(scrutinee, pattern, _) =>
       resolve(scrutinee)
       val ps = resolve(pattern)
-      ps.foreach { Context.bind }
+      ps.foreach { NamerOps.bind }
   }
 
   /**
@@ -738,7 +738,7 @@ object Namer extends Phase[Parsed, NameResolved] {
    * This way error messages might suffer; however it simplifies the compiler a lot.
    */
   def resolveValueType(tpe: source.ValueType, isParam: Boolean = false)(using Context): ValueType = resolvingType(tpe) {
-    case source.TypeRef(id, args, span) => Context.resolveType(id) match {
+    case source.TypeRef(id, args, span) => NamerOps.resolveType(id) match {
       case constructor: TypeConstructor => ValueTypeApp(constructor, args.unspan.map(resolveValueType))
       case id: TypeVar =>
         if (args.nonEmpty) {
@@ -818,7 +818,7 @@ object Namer extends Phase[Parsed, NameResolved] {
     /**
      * TODO share code with [[typer.Typer.makeFunctionType]]
      */
-    case source.FunctionType(tparams, vparams, bparams, ret, effects, _) => Context scoped {
+    case source.FunctionType(tparams, vparams, bparams, ret, effects, _) => NamerOps scoped {
       val tps = tparams.map(resolve)
       val vps = vparams.map(resolveValueType)
 
@@ -837,7 +837,7 @@ object Namer extends Phase[Parsed, NameResolved] {
         cps = cps :+ cap
       }
 
-      cps foreach Context.bind
+      cps foreach NamerOps.bind
 
       val res = resolveValueType(ret)
 
@@ -858,7 +858,7 @@ object Namer extends Phase[Parsed, NameResolved] {
    */
   def resolveWithAliases(tpe: source.TypeRef)(using Context): List[InterfaceType] = Context.at(tpe) {
     val resolved: List[InterfaceType] = tpe match {
-      case source.TypeRef(id, args, span) => Context.resolveType(id) match {
+      case source.TypeRef(id, args, span) => NamerOps.resolveType(id) match {
         case EffectAlias(name, tparams, effs, _) =>
           if (tparams.size != args.size) {
             Context.abort(pretty"Effect alias ${name} expects ${tparams.size} type arguments, but got ${args.size}.")
@@ -884,7 +884,7 @@ object Namer extends Phase[Parsed, NameResolved] {
     (resolveValueType(e.tpe), resolve(e.eff))
 
   def resolve(capt: source.CaptureSet)(using Context): CaptureSet = Context.at(capt) {
-    val captResolved = CaptureSet(capt.captures.map { Context.resolveCapture }.toSet)
+    val captResolved = CaptureSet(capt.captures.map { NamerOps.resolveCapture }.toSet)
     Context.annotateResolvedCapture(capt)(captResolved)
     captResolved
   }
@@ -894,7 +894,7 @@ object Namer extends Phase[Parsed, NameResolved] {
    */
   def resolve(id: Id)(using Context): TypeParam = Context.at(id) {
     val sym: TypeParam = TypeParam(Name.local(id))
-    Context.define(id, sym)
+    NamerOps.define(id, sym)
     sym
   }
 
@@ -944,76 +944,64 @@ object Namer extends Phase[Parsed, NameResolved] {
 /**
  * Environment Utils -- we use a mutable cell to express adding definitions more easily
  */
-trait NamerOps extends ContextOps { Context: Context =>
+object NamerOps {
 
-  /**
-   * The state of the namer phase
-   */
-  private var scope: Scoping = _
+  private def scope(using Context): Scoping = Context.scopeDB.scope
+  private def setScope(scope: Scoping)(using Context): Unit = Context.scopeDB.scope = scope
 
-  private[namer] def initNamerstate(s: Scoping): Unit = {
-    annotate(Annotations.HolesForFile, module.source, Nil)
-    scope = s
+  private[namer] def initNamerstate(s: Scoping)(using Context): Unit = {
+    Context.annotate(Annotations.HolesForFile, Context.module.source, Nil)
+    setScope(s)
   }
 
-  /**
-   * Override the dynamically scoped `in` to also reset namer state.
-   * This is important since dependencies are resolved in a stack-like manner.
-   */
-  override def in[T](block: => T): T = {
-    val before = scope
-    val result = super.in(block)
-    scope = before
-    result
-  }
 
-  private[namer] def nameFor(id: IdDef): Name = scope.path match {
+  private[namer] def nameFor(id: IdDef)(using Context): Name = scope.path match {
     case Some(path) => QualifiedName(path, id.name)
     case None => LocalName(id.name)
   }
 
   // Name Binding and Resolution
   // ===========================
-  private[namer] def define(id: Id, s: TermSymbol): Unit = {
-    assignSymbol(id, s)
+  private[namer] def define(id: Id, s: TermSymbol)(using Context): Unit = {
+    Context.assignSymbol(id, s)
     scope.define(id.name, s)
   }
 
-  private[namer] def define(id: Id, s: TypeSymbol): Unit = {
-    assignSymbol(id, s)
+  private[namer] def define(id: Id, s: TypeSymbol)(using Context): Unit = {
+    Context.assignSymbol(id, s)
     scope.define(id.name, s)
   }
 
-  private[namer] def bind(s: Capture): Unit = bind(s.name.name, s)
+  private[namer] def bind(s: Capture)(using Context): Unit = bind(s.name.name, s)
 
-  private[namer] def bind(name: String, s: Capture): Unit = scope.define(name, s)
+  private[namer] def bind(name: String, s: Capture)(using Context): Unit = scope.define(name, s)
 
-  private[namer] def bind(s: TermSymbol): Unit = scope.define(s.name.name, s)
+  private[namer] def bind(s: TermSymbol)(using Context): Unit = scope.define(s.name.name, s)
 
-  private[namer] def bind(s: TypeSymbol): Unit = scope.define(s.name.name, s)
+  private[namer] def bind(s: TypeSymbol)(using Context): Unit = scope.define(s.name.name, s)
 
-  private[namer] def bindParams(params: List[Param]) =
+  private[namer] def bindParams(params: List[Param])(using Context) =
     params.foreach { p => bind(p) }
 
-  private[namer] def bindValues(params: List[ValueParam]) =
+  private[namer] def bindValues(params: List[ValueParam])(using Context) =
     params.foreach { p => bind(p) }
 
-  private[namer] def bindValues(params: Many[ValueParam]): Unit =
+  private[namer] def bindValues(params: Many[ValueParam])(using Context): Unit =
     bindValues(params.unspan)
 
-  private[namer] def bindBlocks(params: List[BlockParam]) =
+  private[namer] def bindBlocks(params: List[BlockParam])(using Context) =
     // bind the block parameter as a term
     params.foreach { bindBlock }
 
-  private[namer] def bindBlocks(params: Many[BlockParam]): Unit =
+  private[namer] def bindBlocks(params: Many[BlockParam])(using Context): Unit =
     bindBlocks(params.unspan)
 
-  private[namer] def bindBlock(p: TrackedParam) = {
+  private[namer] def bindBlock(p: TrackedParam)(using Context) = {
     // bind the block parameter as a term
     bind(p)
     bind(p.capture)
   }
-  private[namer] def bindBlock(name: String, p: TrackedParam) = {
+  private[namer] def bindBlock(name: String, p: TrackedParam)(using Context) = {
     scope.define(name, p)
     scope.define(name, p.capture)
   }
@@ -1022,19 +1010,19 @@ trait NamerOps extends ContextOps { Context: Context =>
    * Tries to find a _unique_ term symbol in the current scope under name id.
    * Stores a binding in the symbol table
    */
-  private[namer] def resolveTerm(id: IdRef): TermSymbol = at(id) {
+  private[namer] def resolveTerm(id: IdRef)(using Context): TermSymbol = Context.at(id) {
     val sym = scope.lookupFirstTerm(id)
-    assignSymbol(id, sym)
+    Context.assignSymbol(id, sym)
     sym
   }
 
-  private[namer] def addHole(h: Hole): Unit =
-    val src = module.source
-    val holesSoFar = annotationOption(Annotations.HolesForFile, src).getOrElse(Nil)
-    annotate(Annotations.HolesForFile, src, holesSoFar :+ (h, scope.scope))
+  private[namer] def addHole(h: Hole)(using Context): Unit =
+    val src = Context.module.source
+    val holesSoFar = Context.annotationOption(Annotations.HolesForFile, src).getOrElse(Nil)
+    Context.annotate(Annotations.HolesForFile, src, holesSoFar :+ (h, scope.scope))
 
-  private[namer] def allConstructorsFor(name: Name): Set[Constructor] = name match {
-    case NoName => panic("Constructor needs to be named")
+  private[namer] def allConstructorsFor(name: Name)(using Context): Set[Constructor] = name match {
+    case NoName => Context.panic("Constructor needs to be named")
     case LocalName(name) => scope.allTermsFor(Nil, name).collect {
       case c: Constructor => c
     }
@@ -1043,24 +1031,24 @@ trait NamerOps extends ContextOps { Context: Context =>
     }
   }
 
-  private[namer] def resolveAny(id: IdRef): Symbol = at(id) {
+  private[namer] def resolveAny(id: IdRef)(using Context): Symbol = Context.at(id) {
     val sym = scope.lookupFirst(id.path, id.name)
-    assignSymbol(id, sym)
+    Context.assignSymbol(id, sym)
     sym
   }
 
   /**
    * Resolves a potentially overloaded method target
    */
-  private[namer] def resolveOverloadedOperation(id: IdRef): Boolean = at(id) {
+  private[namer] def resolveOverloadedOperation(id: IdRef)(using Context): Boolean = Context.at(id) {
     val syms = scope.lookupOperation(id.path, id.name)
 
     val syms2 = if (syms.isEmpty) scope.lookupFunction(id.path, id.name) else syms
 
-    if (syms2.nonEmpty) { assignSymbol(id, CallTarget(syms2.asInstanceOf)); true } else { false }
+    if (syms2.nonEmpty) { Context.assignSymbol(id, CallTarget(syms2.asInstanceOf)); true } else { false }
   }
 
-  private[namer] def resolveOverloadedFunction(id: IdRef): Boolean = at(id) {
+  private[namer] def resolveOverloadedFunction(id: IdRef)(using Context): Boolean = Context.at(id) {
     val syms = scope.lookupFunction(id.path, id.name)
 
     val syms2 = if (syms.isEmpty) scope.lookupOperation(id.path, id.name) else syms
@@ -1068,31 +1056,31 @@ trait NamerOps extends ContextOps { Context: Context =>
     // lookup first block param and do not collect multiple since we do not (yet?) permit overloading on block parameters
     val syms3 = if (syms2.isEmpty) List(scope.lookupFirstBlockParam(id.path, id.name)) else syms2
 
-    if (syms3.nonEmpty) { assignSymbol(id, CallTarget(syms3.asInstanceOf)); true } else { false }
+    if (syms3.nonEmpty) { Context.assignSymbol(id, CallTarget(syms3.asInstanceOf)); true } else { false }
   }
 
   /**
    * Resolves a potentially overloaded function call
    */
-  private[namer] def resolveFunctionCalltarget(id: IdRef): Unit = at(id) {
+  private[namer] def resolveFunctionCalltarget(id: IdRef)(using Context): Unit = Context.at(id) {
     val candidates = scope.lookupOverloaded(id, term => !term.isInstanceOf[Operation])
 
     resolveFunctionCalltarget(id, candidates) match {
       case Left(value) =>
-        assignSymbol(id, value)
+        Context.assignSymbol(id, value)
       case Right(blocks) =>
         if (blocks.isEmpty) {
           val ops = scope.lookupOperation(id.path, id.name).flatten
 
           // Provide specific info messages for operations
           ops.foreach { op =>
-            info(pretty"There is an equally named effect operation ${op} of interface ${op.interface}. Use syntax `do ${id}()` to call it.")
+            Context.info(pretty"There is an equally named effect operation ${op} of interface ${op.interface}. Use syntax `do ${id}()` to call it.")
           }
 
           // Always abort with the generic message
-          abort(pretty"Cannot find a function named `${id}`.")
+          Context.abort(pretty"Cannot find a function named `${id}`.")
         }
-        assignSymbol(id, CallTarget(blocks))
+        Context.assignSymbol(id, CallTarget(blocks))
     }
   }
 
@@ -1107,7 +1095,7 @@ trait NamerOps extends ContextOps { Context: Context =>
    *    and resolve to an overloaded target.
    */
   @tailrec
-  private def resolveFunctionCalltarget(id: IdRef, candidates: List[Set[TermSymbol]]): Either[TermSymbol, List[Set[BlockSymbol]]] =
+  private def resolveFunctionCalltarget(id: IdRef, candidates: List[Set[TermSymbol]])(using Context): Either[TermSymbol, List[Set[BlockSymbol]]] =
 
     // Mutable variables are treated as values, not as blocks. Maybe we should change the representation.
     def isValue(t: TermSymbol): Boolean = t.isInstanceOf[ValueSymbol] || t.isInstanceOf[RefBinder]
@@ -1124,74 +1112,74 @@ trait NamerOps extends ContextOps { Context: Context =>
 
       case terms :: rest if terms.exists(isValue) =>
         if (terms.exists(isBlock)) {
-          panic("Should not happen by construction.")
+          Context.panic("Should not happen by construction.")
         }
         // it is only a SINGLE value in the current scope => take it. It shadows blocks.
         if (terms.size == 1) {
           Left(terms.head)
         } else {
-          abort(pretty"Multiple values with the same name $id in one scope. Values cannot be overloaded.")
+          Context.abort(pretty"Multiple values with the same name $id in one scope. Values cannot be overloaded.")
         }
 
-      case _ => panic("Should not happen")
+      case _ => Context.panic("Should not happen")
     }
 
   /**
    * Resolves a potentially overloaded field access
    */
-  private[namer] def resolveSelect(id: IdRef): Unit = at(id) {
+  private[namer] def resolveSelect(id: IdRef)(using Context): Unit = Context.at(id) {
     val syms = scope.lookupOverloaded(id, term => term.isInstanceOf[Field])
 
     if (syms.isEmpty) {
-      abort(pretty"Cannot resolve field access ${id}")
+      Context.abort(pretty"Cannot resolve field access ${id}")
     }
 
-    assignSymbol(id, CallTarget(syms.asInstanceOf))
+    Context.assignSymbol(id, CallTarget(syms.asInstanceOf))
   }
 
   /**
    * Resolves a potentially overloaded call to an effect
    */
-  private[namer] def resolveEffectCall(id: IdRef): Unit = at(id) {
+  private[namer] def resolveEffectCall(id: IdRef)(using Context): Unit = Context.at(id) {
 
     val syms = scope.lookupOperation(id.path, id.name)
 
     if (syms.isEmpty) {
-      abort(pretty"Cannot resolve effect operation ${id}")
+      Context.abort(pretty"Cannot resolve effect operation ${id}")
     }
 
-    assignSymbol(id, CallTarget(syms.asInstanceOf))
+    Context.assignSymbol(id, CallTarget(syms.asInstanceOf))
   }
 
   /**
    * Variables have to be resolved uniquely
    */
-  private[namer] def resolveVar(id: IdRef): TermSymbol = resolveTerm(id) match {
+  private[namer] def resolveVar(id: IdRef)(using Context): TermSymbol = resolveTerm(id) match {
     case b: BlockParam => b // abort("Blocks have to be fully applied and can't be used as values.")
     case other         => other
   }
 
-  private[namer] def resolveType(id: IdRef): TypeSymbol = at(id) {
+  private[namer] def resolveType(id: IdRef)(using Context): TypeSymbol = Context.at(id) {
     val sym = scope.lookupType(id)
-    assignSymbol(id, sym)
+    Context.assignSymbol(id, sym)
     sym
   }
 
-  private[namer] def resolveCapture(id: IdRef): Capture = at(id) {
+  private[namer] def resolveCapture(id: IdRef)(using Context): Capture = Context.at(id) {
     val sym = scope.lookupCapture(id)
-    assignSymbol(id, sym)
+    Context.assignSymbol(id, sym)
     sym
   }
 
-  private[namer] def scoped[R](block: => R): R = Context in {
+  private[namer] def scoped[R](block: => R)(using Context): R = Context in {
     scope.scoped { block }
   }
 
-  private[namer] def scopedWithName[R](name: String)(block: => R): R = Context in {
+  private[namer] def scopedWithName[R](name: String)(using Context)(block: => R): R = Context in {
     scope.scoped(name, block)
   }
 
-  private[namer] def namespace[R](name: String)(block: => R): R = Context in {
+  private[namer] def namespace[R](name: String)(using Context)(block: => R): R = Context in {
     scope.namespace(name) { block }
   }
 }

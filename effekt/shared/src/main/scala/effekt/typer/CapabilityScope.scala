@@ -31,7 +31,7 @@ class BindAll(binder: source.Tree, var capabilities: Map[symbols.InterfaceType, 
   def copy: CapabilityScope = BindAll(binder, capabilities, parent.copy)
   def capabilityFor(tpe: symbols.InterfaceType)(using C: Context): symbols.BlockParam =
     capabilities.getOrElse(tpe, {
-      val freshCapability = C.freshCapabilityFor(tpe)
+      val freshCapability = TyperOps.freshCapabilityFor(tpe)(using C)
       capabilities = capabilities.updated(tpe, freshCapability)
       freshCapability
     })

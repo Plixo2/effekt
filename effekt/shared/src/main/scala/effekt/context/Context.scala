@@ -1,13 +1,13 @@
 package effekt
 package context
 
+import effekt.core.BindingDB
 import effekt.namer.NamerOps
-import effekt.typer.{TyperOps, Unification}
-import effekt.core.TransformerOps
 import effekt.source.Tree
-import effekt.util.messages.{EffektMessages, ErrorReporter}
-import effekt.util.Timers
 import effekt.symbols.Module
+import effekt.typer.Unification
+import effekt.util.{Timed, TimerOps}
+import effekt.util.messages.{EffektMessages, ErrorReporter}
 
 /**
  * Phases like Typer can add operations to the context by extending this trait
@@ -19,17 +19,7 @@ trait ContextOps
     with TreeAnnotations
     with SourceAnnotations 
     with SymbolAnnotations
-    with Unification { self: Context =>
-
-  /**
-   * Used throughout the compiler to create a new "scope"
-   *
-   * Each XOps slice can define what a new "scope" means and
-   * backup and restore state accordingly. Overriding definitions
-   * should call `super.in(block)`.
-   */
-  def in[T](block: => T): T = block
-}
+    with Unification { self: Context => }
 
 /**
  * The compiler context consists of
@@ -39,14 +29,16 @@ trait ContextOps
  * - error reporting (mutable focus)
  */
 abstract class Context
-    extends NamerOps
-    with TyperOps
-    with ModuleDB
-    with TransformerOps
-    with Timers {
+    extends ModuleDB
+    with ContextOps {
 
   // bring the context itself in scope
   implicit val context: Context = this
+
+  val timeDB: TimeDB = new TimeDB
+  var bindingDB: BindingDB = new BindingDB
+  var annotationDB: AnnotationDB = new AnnotationDB
+  val scopeDB: ScopeDB = new ScopeDB
 
   // the currently processed module
   var module: Module = _
@@ -72,7 +64,7 @@ abstract class Context
     messaging.clear()
     // No timings are captured in server mode to keep the memory footprint small. Since the server is run continuously,
     // the memory claimed by the timing information would increase continuously.
-    clearTimers(cfg.timed())
+    TimerOps.clearTimers(cfg.timed())(using this)
     _config = cfg
   }
 
@@ -83,17 +75,48 @@ abstract class Context
   }
 
   /**
+   * Time the execution of `f` and save the result in the times database under the "category" `timerName`
+   * and the event `id`.
+   */
+  def timed[A](timerName: String, id: String)(f: => A): A = {
+    if (!timeDB.timersActive) return f
+    val (res, duration) = timed(f)
+    timeDB.update(timerName, Timed(id, duration))
+    res
+  }
+
+  /**
+   * Convenience function for timing the execution of a given function.
+   */
+  private def timed[A](f: => A): (A, Double) = {
+    val start = System.nanoTime()
+    val res = f
+    val duration = (System.nanoTime() - start) * 1e-6
+    (res, duration)
+  }
+
+
+  /**
+   *
+   * Used throughout the compiler to create a new "scope"
+   *
+   * Each XOps slice can define what a new "scope" means and
+   * backup and restore state accordingly. Overriding definitions
+   * should call `super.in(block)`.
+   *
    * This is useful to write code like: reporter in { ... implicitly uses reporter ... }
    */
-  override def in[T](block: => T): T = {
+  def in[T](block: => T): T = {
     val focusBefore = focus
     val moduleBefore = module
-    val result = super.in(block)
+    val scopeBefore = scopeDB.scope
+    val result = block
 
     // we purposefully do not include the reset into `finally` to preserve the
     // state at the error position
     focus = focusBefore
     module = moduleBefore
+    scopeDB.scope = scopeBefore
     result
   }
 

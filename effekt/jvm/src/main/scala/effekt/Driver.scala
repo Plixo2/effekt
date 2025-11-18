@@ -7,7 +7,7 @@ import effekt.context.{Context, IOModuleDB}
 import effekt.source.ModuleDecl
 import effekt.util.messages.{CompilerPanic, FatalPhaseError}
 import effekt.util.paths.file
-import effekt.util.{AnsiColoredMessaging, JSONDocumentationGenerator, MarkdownSource}
+import effekt.util.{AnsiColoredMessaging, JSONDocumentationGenerator, MarkdownSource, TimerOps}
 import kiama.output.PrettyPrinterTypes.Document
 import kiama.util.{FileSource, IO, Source, StringSource}
 
@@ -97,18 +97,18 @@ trait Driver { outer =>
   }
 
   /**
-   * Outputs the timing information captured in [[effekt.util.Timers]] by [[effekt.context.Context]]. Either a JSON file
+   * Outputs the timing information captured in [[effekt.util.TimerOps]] by [[effekt.context.Context]]. Either a JSON file
    * is written to disk or a plain text message is written to stdout.
    */
   def outputTimes(source: Source, config: EffektConfig)(implicit C: Context): Unit = {
-    if (C.timersActive) config.time.toOption foreach {
+    if (TimerOps.timersActive(using C)) config.time.toOption foreach {
       case "json" =>
         // extract source filename and write to given output path
         val out = config.outputPath().getAbsolutePath
         val name = s"${source.name.split("/").last.stripSuffix(".effekt")}.json"
-        IO.createFile((out / name).unixPath, C.timesToJSON())
+        IO.createFile((out / name).unixPath, TimerOps.timesToJSON()(using C))
       case "text" =>
-        C.info(C.timesToString())
+        C.info(TimerOps.timesToString()(using C))
     }
   }
 

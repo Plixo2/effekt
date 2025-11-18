@@ -1,5 +1,7 @@
 package effekt.util
 
+import effekt.context.Context
+
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 import scala.io.AnsiColor.*
@@ -9,50 +11,28 @@ case class Timed(name: String, time: Double)
  * Trait for timing events. Using the `timed` function, a new event can be timed.
  * The result is saved in map under a specified category with a unique identifier.
  */
-trait Timers {
-  /**
-   * Saves measured times under a "category" (e.g. "parser" - a phase name) together with a unique
-   * identifier, e.g., a filename. This is meant to be append only.
-   */
-  val times: mutable.LinkedHashMap[String, mutable.ListBuffer[Timed]] = mutable.LinkedHashMap.empty
+object TimerOps {
 
-  /** Whether the `timed` function is NOP or actual takes and saves the time. */
-  var timersActive: Boolean = true
-
-  def totalTime: Double = 
+  private def totalTime(using Context): Double = {
+    val times = Context.timeDB.times
     times.get("total").map(_.head.time).getOrElse {
       times.foldLeft(0d) { (acc, values) =>
         acc + values._2.foldLeft(0d)((acc, timed) => acc + timed.time)
       }
     }
-    
-  def clearTimers(active: Boolean): Unit = {
-    times.clear()
-    timersActive = active
   }
 
-  /**
-   * Time the execution of `f` and save the result in the times database under the "category" `timerName`
-   * and the event `id`.
-   */
-  def timed[A](timerName: String, id: String)(f: => A): A = {
-    if (!timersActive) return f
-    val (res, duration) = timed(f)
-    times.update(timerName, times.getOrElse(timerName, mutable.ListBuffer.empty).prepend(Timed(id, duration)))
-    res
+  def clearTimers(active: Boolean)(using Context): Unit = {
+    Context.timeDB.times.clear()
+    Context.timeDB.timersActive = active
   }
 
-  /**
-   * Convenience function for timing the execution of a given function.
-   */
-  private def timed[A](f: => A): (A, Double) = {
-    val start = System.nanoTime()
-    val res = f
-    val duration = (System.nanoTime() - start) * 1e-6
-    (res, duration)
-  }
+  def timersActive(using Context): Boolean = Context.timeDB.timersActive
 
-  def timesToString(): String = {
+
+  def timesToString()(using Context): String = {
+    val times = Context.timeDB.times
+
     val spacetab = " ".repeat(4)
     times.zipWithIndex.map { case ((name, ts), i) =>
       val totalsubtime = ts.foldLeft(0d)((acc, timed) => acc + timed.time)
@@ -76,7 +56,8 @@ trait Timers {
     result
   }
 
-  def timesToJSON(): String = withENLocale {
+  def timesToJSON()(using Context): String = withENLocale {
+    val times = Context.timeDB.times
     val spacetab = " ".repeat(4)
     val entries = times.map { (name, ts) =>
       val subs = ts.map { case Timed(subname, time) =>
